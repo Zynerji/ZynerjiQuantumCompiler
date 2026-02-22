@@ -22,11 +22,14 @@ Spectral graph matching for quantum circuit compilation. Uses dual-helix Laplaci
 | QV-8 | heavy-hex 19q | 19 | 19 | 0 | 0.0% |
 | **Total** | | **971** | **1039** | **-68** | **6.5%** |
 
-### Large-Scale (preliminary)
+### Large-Scale (QFT-64)
 
-| Circuit | Topology | Helix | Qiskit3 | Improvement |
-|---------|----------|------:|--------:|------------:|
-| QFT-64 | 12x12 grid (144q) | 817 | 869 | 6.0% |
+Qiskit results are best-of-5 seeds for fair comparison.
+
+| Circuit | Topology | Helix | Qiskit3 | Diff | Improvement |
+|---------|----------|------:|--------:|-----:|------------:|
+| QFT-64 | 12x12 grid (144q) | 817 | 853 | -36 | 4.2% |
+| QFT-64 | heavy-hex d=7 (115q) | 1458 | 1505 | -47 | 3.1% |
 
 All results are deterministic (`seed=42`) and reproducible.
 

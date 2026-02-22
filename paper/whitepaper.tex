@@ -245,18 +245,19 @@ Helix wins or ties in all 12 cases; never loses.
 
 \subsection{Large-Scale Benchmarks}
 
-Preliminary results on QFT-64 (2112 gates, 144-qubit grid topology) show the
-spectral advantage persists at scale:
+Results on QFT-64 (2112 gates) across two topologies confirm the spectral
+advantage persists at scale:
 
 \begin{table}[h]
 \centering
-\caption{Large-scale QFT benchmarks (preliminary).}
+\caption{Large-scale QFT benchmarks. Qiskit results are best-of-5 seeds.}
 \label{tab:large}
 \begin{tabular}{@{}lrrrr@{}}
 \toprule
 \textbf{Case} & \textbf{Helix} & \textbf{Qiskit3} & \textbf{Diff} & \textbf{Improvement} \\
 \midrule
-QFT-64, 12$\times$12 grid  & 817 & 869 & $-52$ & $+6.0\%$ \\
+QFT-64, 12$\times$12 grid (144q)    & 817  & 853  & $-36$ & $+4.2\%$ \\
+QFT-64, heavy-hex d=7 (115q)        & 1458 & 1505 & $-47$ & $+3.1\%$ \\
 \bottomrule
 \end{tabular}
 \end{table}
