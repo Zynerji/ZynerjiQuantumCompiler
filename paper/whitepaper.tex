@@ -285,11 +285,13 @@ trade-off: we invest compilation time to reduce SWAP gates, which directly
 reduces circuit error on noisy hardware. For production use, the ensemble
 can be parallelized across cores.
 
-\paragraph{Scaling hypothesis.}
-The QFT-64 result ($+6.0\%$) suggests the spectral advantage persists at scale.
-Spectral methods capture global structure that becomes harder for stochastic
-methods to discover as circuit size grows. Testing on QFT-128 and larger
-circuits is ongoing.
+\paragraph{Scaling.}
+The QFT-64 results ($+4.2\%$ on grid, $+3.1\%$ on heavy-hex) confirm the
+spectral advantage persists at scale. At 128 qubits, the Python ensemble
+exceeds 40 minutes compilation time, motivating a C++ hot path for the
+eigensolver and LAP solver (Eigen3/Spectra/pybind11). Qiskit compiles
+QFT-64 in under 4 seconds; our approach trades compilation time for
+circuit quality.
 
 \section{Related Work}
 
@@ -325,12 +327,17 @@ Fixed random seeds (\texttt{seed=42}) ensure deterministic output.
 \section{Conclusion}
 
 Dual-helix spectral layout provides a consistent ${\sim}6.5\%$ SWAP reduction
-over Qiskit \texttt{opt\_level=3} across a diverse benchmark suite, with
-early evidence of scaling to 64+ qubits. The method never performs worse
-than Qiskit due to the ensemble guarantee. The approach is practical for
-circuits where compilation quality matters more than compilation speed---such
-as variational algorithms, error correction circuits, and hardware
-characterization experiments.
+over Qiskit \texttt{opt\_level=3} across a 12-case benchmark suite at
+8--32 qubits, with confirmed 3--4\% improvement on QFT-64 at 115--144
+physical qubits. The method never performs worse than Qiskit due to the
+ensemble guarantee. The approach is practical for circuits where compilation
+quality matters more than compilation speed---such as variational algorithms,
+error correction circuits, and hardware characterization experiments.
+
+The compilation time trade-off (90\,s for QFT-32, 800\,s for QFT-64) limits
+current utility to offline compilation. A C++ implementation of the spectral
+engine and LAP solver could reduce this to sub-second, making the approach
+viable for interactive use.
 
 \begin{thebibliography}{9}
 \bibitem{sabre}
