@@ -1,0 +1,40 @@
+__pycache__/
+*.pyc
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+*.egg
+.venv/
+venv/
+benchmarks/
+.pytest_cache/
+cpp/build/
+cpp/cmake-build*/
+*.so
+*.pyd
+*.o
+*.dylib
+*.dll
+
+# LaTeX build artifacts
+paper/*.aux
+paper/*.log
+paper/*.out
+paper/*.toc
+paper/*.bbl
+paper/*.blg
+paper/*.fdb_latexmk
+paper/*.fls
+paper/*.synctex.gz
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+.env

@@ -1,0 +1,356 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{multirow}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{enumitem}
+
+\lstset{
+    language=Python,
+    basicstyle=\small\ttfamily,
+    keywordstyle=\color{blue},
+    commentstyle=\color{gray},
+    stringstyle=\color{red!60!black},
+    frame=single,
+    breaklines=true,
+}
+
+\title{Dual-Helix Spectral Layout for Quantum Circuit Compilation:\\
+A Multi-Strategy Ensemble Approach}
+
+\author{C.\ Knopp}
+\date{February 2026}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+We present a spectral graph matching approach to quantum circuit layout that
+uses dual helical Laplacians with golden-ratio coupling to embed qubit
+interaction graphs into a shared spectral space with hardware coupling maps.
+The method produces initial qubit placements that reduce SWAP gate insertions
+during routing. When combined with an ensemble of layout strategies---including
+angular (phase-aligned) matching, hierarchical multi-scale placement, signed
+interaction graphs, and Qiskit's SABRE as a baseline---the approach
+consistently reduces SWAP counts by 6.5\% relative to Qiskit
+\texttt{optimization\_level=3} across a benchmark suite of 12 circuit/topology
+combinations at 8--32 qubits, with early results showing 6.0\% improvement on
+QFT-64 (144-qubit grid). All results are deterministic and reproducible.
+\end{abstract}
+
+\section{Introduction}
+
+Quantum circuit compilation maps a logical circuit onto physical hardware
+subject to connectivity constraints. When two-qubit gates act on qubits that
+are not physically adjacent, SWAP gates must be inserted to route qubits into
+proximity. Each SWAP gate decomposes into three CNOT gates and adds noise,
+making SWAP minimization critical for near-term quantum computing.
+
+The layout problem---assigning logical qubits to physical positions before
+routing---is a Quadratic Assignment Problem (QAP), which is NP-hard in
+general. Current approaches use heuristic iterative methods. Qiskit's SABRE
+algorithm~\cite{sabre} performs stochastic forward-backward routing passes to
+discover good initial layouts, and is considered the state of the art for
+general-purpose compilation.
+
+We explore whether spectral graph theory can produce better initial layouts by
+``seeing'' global graph structure that greedy and stochastic methods may miss.
+Our approach embeds both the circuit interaction graph and the hardware coupling
+graph into a shared spectral coordinate space, then solves a Linear Assignment
+Problem (LAP) to match qubits to positions by structural similarity.
+
+\section{Method}
+
+\subsection{Dual-Helix Laplacian Construction}
+
+Given a weighted adjacency matrix $A$ (from either the circuit or hardware
+graph), we construct two phase-modulated Laplacians:
+
+\paragraph{Angular coordinates.} For each node $i \in \{0, \ldots, n-1\}$:
+\begin{equation}
+    \theta_i = c_{\text{log}} \cdot \ln(i + 1)
+\end{equation}
+where $c_{\text{log}} = 1.0$ provides logarithmic spacing.
+
+\paragraph{Phase modulation.} For each edge $(i, j)$ with weight $w_{ij}$:
+\begin{equation}
+    w^{\text{cos}}_{ij} = w_{ij} \cdot \varphi \cdot \cos\bigl(\omega \cdot (\theta_i - \theta_j) + \delta_{ij}\bigr)
+\end{equation}
+\begin{equation}
+    w^{\text{sin}}_{ij} = w_{ij} \cdot \varphi^2 \cdot \sin\bigl(\omega \cdot (\theta_i - \theta_j) + \delta_{ij}\bigr)
+\end{equation}
+where $\varphi = (1+\sqrt{5})/2$ is the golden ratio, $\omega = 0.3$ is the
+phase frequency, and $\delta_{ij} = \pi$ if $|i-j| > n \cdot f_{\text{twist}}$
+(M\"obius twist for topologically distant pairs, $f_{\text{twist}} = 0.33$).
+
+\paragraph{Laplacian.} Standard construction $L = D - A_{\text{helix}}$
+where $D$ is the degree matrix. Only positive modulated weights are retained.
+
+\paragraph{Standard mode.} When the helix phase modulation is disabled
+($\texttt{use\_helix}=\texttt{False}$), the standard combinatorial or
+normalized Laplacian $L = D - A$ is used instead.
+
+\subsection{Spectral Coordinate Extraction}
+
+From each Laplacian, we extract the $k$ smallest non-trivial eigenvectors
+$v_1, v_2, \ldots, v_k$ (skipping the constant Fiedler zero mode). Spectral
+attenuation weights each eigenvector:
+\begin{equation}
+    w_m = \exp\!\left(-\alpha \cdot \frac{\lambda_m}{\lambda_{\max}}\right)
+\end{equation}
+where $\alpha = 3.0$ controls the decay rate. This emphasizes low-frequency
+(global structure) eigenvectors over high-frequency (local noise) ones.
+
+The spectral coordinates for node $i$ are:
+\begin{equation}
+    \mathbf{x}_i = \bigl[w_1 v_1(i),\; w_2 v_2(i),\; \ldots,\; w_k v_k(i)\bigr]^{\text{cos}} \|\; \bigl[\cdots\bigr]^{\text{sin}}
+\end{equation}
+yielding a $2k$-dimensional embedding per node.
+
+\subsection{Layout via Linear Assignment}
+
+Given circuit spectral coordinates $\mathbf{c}_i$ ($n_{\text{logical}}$ qubits)
+and hardware coordinates $\mathbf{h}_j$ ($n_{\text{physical}}$ qubits), we
+construct a cost matrix:
+\begin{equation}
+    C_{ij} = \|\mathbf{c}_i - \mathbf{h}_j\|^2
+\end{equation}
+and solve the LAP using the Hungarian algorithm ($O(n^3)$) to obtain the
+optimal assignment $\sigma^* = \arg\min_\sigma \sum_i C_{i,\sigma(i)}$.
+
+\subsection{Ensemble Strategy}
+
+A single spectral decomposition rarely dominates across all circuit/topology
+combinations. We generate a diverse set of candidate layouts from multiple
+strategies and select the best one after routing:
+
+\begin{enumerate}[label=\arabic*., leftmargin=2em]
+    \item \textbf{Greedy distance-aware placement}: Place qubits one at a time,
+          prioritizing the qubit with the most interactions to already-placed
+          qubits, minimizing weighted hardware distance.
+
+    \item \textbf{Spectral matching}: Dual-helix and standard Laplacian
+          embeddings with parameter diversity ($\alpha \in \{1, 3, 5\}$,
+          $\omega \in \{0.1, 0.3, 0.5\}$), depth-weighted interaction graphs,
+          and both helix and standard modes.
+
+    \item \textbf{Hall spectral placement}: Uses the Fiedler vector as
+          $x$-coordinate and the 3rd eigenvector as $y$-coordinate (inspired
+          by VLSI placement theory~\cite{hall}), with normalized Laplacian
+          for degree-irregular topologies.
+
+    \item \textbf{Sequential band placement}: Maps Fiedler-ordered qubits
+          onto the hardware's longest geodesic chain. Effective for circuits
+          with dense sequential interactions (e.g., QFT).
+
+    \item \textbf{SABRE layout}: Qiskit's stochastic iterative layout with
+          multiple trial/iteration configurations on both native and
+          CX-decomposed circuit representations.
+
+    \item \textbf{Angular (phase) matching}: Cosine similarity cost matrix
+          instead of L2 distance, providing magnitude-invariant structural
+          matching.
+
+    \item \textbf{Signed interaction graphs}: Ternary $\{-1, 0, +1\}$
+          adjacency encoding where competing qubits (sharing neighbors but
+          not directly interacting) receive repulsive edges, improving spectral
+          separation.
+
+    \item \textbf{Golden-ratio eigenvector selection}: Eigenvectors selected
+          at golden-ratio-spaced spectral indices instead of consecutive,
+          providing multi-scale structural information without harmonic
+          redundancy.
+
+    \item \textbf{Q-factor amplification}: Structural antinode detection---when
+          circuit and hardware spectral directions strongly align, the match
+          cost is reduced, making the Hungarian algorithm more decisive.
+
+    \item \textbf{Hierarchical multi-scale matching}: Recursive Fiedler
+          bisection coarsens both graphs, matches partitions at coarse scale,
+          then refines placement within each matched region.
+
+    \item \textbf{Qiskit baseline ensemble}: Multi-seed Qiskit
+          \texttt{opt\_level} 2 and 3 (16 seeds total), guaranteeing the
+          result is never worse than Qiskit alone.
+\end{enumerate}
+
+After deduplication, all candidate layouts are evaluated via SabreSwap routing.
+The top candidates undergo deep multi-seed routing, temporal loop refinement
+(forward/backward convergence), and Qiskit full-pipeline integration with
+our spectral layouts.
+
+\subsection{Interaction Graph Construction}
+
+Two-qubit gate interactions are extracted from the DAG representation of the
+circuit. We build interaction graphs from the \emph{native} (pre-decomposition)
+circuit, where multi-qubit gates like \texttt{cp}, \texttt{cz}, \texttt{crx}
+appear as single edges rather than 2--3 CX edges after basis translation.
+This gives cleaner spectral structure. Optionally, depth-weighted graphs
+assign higher weight to earlier gates ($w = 1/(1 + \text{layer\_index})$),
+breaking the complete-graph degeneracy of circuits like QFT where every
+qubit pair eventually interacts.
+
+\section{Experimental Results}
+
+\subsection{Setup}
+
+All experiments use Qiskit 1.3.x on a single machine (AMD Ryzen, Windows 10).
+Qiskit \texttt{optimization\_level=3} serves as the baseline (SABRE layout +
+SABRE routing + full optimization passes). SWAP counts are measured on the
+final compiled circuit. All results are deterministic with fixed random seeds.
+
+\subsection{Standard Benchmark Suite (8--32 qubits)}
+
+Table~\ref{tab:standard} shows results across 12 benchmark cases spanning
+three circuit families (QFT, Quantum Volume, Random, QAOA) and two hardware
+topologies (heavy-hex 19q, square grid 16--64q).
+
+\begin{table}[h]
+\centering
+\caption{SWAP counts: Helix ensemble vs.\ Qiskit \texttt{opt\_level=3}.
+Negative H--Q values indicate Helix wins.}
+\label{tab:standard}
+\begin{tabular}{@{}lrrrl@{}}
+\toprule
+\textbf{Case} & \textbf{Helix} & \textbf{Qiskit3} & \textbf{H--Q} & \textbf{Winner} \\
+\midrule
+qft\_32\_grid\_8x8          & 280 & 311 & $-31$ & Helix \\
+random\_32\_grid\_8x8       & 238 & 250 & $-12$ & Helix \\
+qft\_16\_grid\_6x6          & 61  & 70  & $-9$  & Helix \\
+qv\_16\_heavyhex\_19        & 146 & 152 & $-6$  & Helix \\
+qft\_8\_grid\_4x4           & 9   & 11  & $-2$  & Helix \\
+qft\_8\_heavyhex\_19        & 17  & 19  & $-2$  & Helix \\
+qaoa\_16\_heavyhex\_19      & 15  & 17  & $-2$  & Helix \\
+random\_16\_grid\_6x6       & 64  & 66  & $-2$  & Helix \\
+random\_8\_grid\_4x4        & 12  & 14  & $-2$  & Helix \\
+qft\_16\_heavyhex\_19       & 106 & 106 & $0$   & Tied \\
+qaoa\_8\_heavyhex\_19       & 4   & 4   & $0$   & Tied \\
+qv\_8\_heavyhex\_19         & 19  & 19  & $0$   & Tied \\
+\midrule
+\textbf{Total}              & \textbf{971} & \textbf{1039} & $\mathbf{-68}$ & \\
+\bottomrule
+\end{tabular}
+
+\medskip
+\textbf{Overall improvement: 6.5\%} (68 fewer SWAPs out of 1039).
+Helix wins or ties in all 12 cases; never loses.
+\end{table}
+
+\subsection{Large-Scale Benchmarks}
+
+Preliminary results on QFT-64 (2112 gates, 144-qubit grid topology) show the
+spectral advantage persists at scale:
+
+\begin{table}[h]
+\centering
+\caption{Large-scale QFT benchmarks (preliminary).}
+\label{tab:large}
+\begin{tabular}{@{}lrrrr@{}}
+\toprule
+\textbf{Case} & \textbf{Helix} & \textbf{Qiskit3} & \textbf{Diff} & \textbf{Improvement} \\
+\midrule
+QFT-64, 12$\times$12 grid  & 817 & 869 & $-52$ & $+6.0\%$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Analysis}
+
+\paragraph{Where spectral layout helps.}
+The largest improvements occur on circuits with rich global structure mapped
+to large hardware grids. QFT-32 on an 8$\times$8 grid shows $-31$ SWAPs
+($10.0\%$ reduction), because spectral embedding captures QFT's dense
+sequential interaction pattern and maps it to the grid's 2D structure more
+effectively than stochastic search.
+
+\paragraph{Where the ensemble matters.}
+For small circuits on tight topologies (QFT-8, QAOA-8 on heavy-hex), the
+search space is small enough that SABRE finds near-optimal layouts. Here, the
+Qiskit baseline ensemble component ensures we match Qiskit exactly (tied).
+The ensemble guarantee---never worse than Qiskit---is critical for practical
+adoption.
+
+\paragraph{Compilation time.}
+The ensemble approach is computationally expensive: QFT-32 takes
+${\sim}90$\,seconds vs.\ Qiskit's ${\sim}0.3$\,seconds. This is a deliberate
+trade-off: we invest compilation time to reduce SWAP gates, which directly
+reduces circuit error on noisy hardware. For production use, the ensemble
+can be parallelized across cores.
+
+\paragraph{Scaling hypothesis.}
+The QFT-64 result ($+6.0\%$) suggests the spectral advantage persists at scale.
+Spectral methods capture global structure that becomes harder for stochastic
+methods to discover as circuit size grows. Testing on QFT-128 and larger
+circuits is ongoing.
+
+\section{Related Work}
+
+SABRE~\cite{sabre} is the standard heuristic layout algorithm in Qiskit,
+using iterative forward-backward routing passes. LightSABRE~\cite{lightsabre}
+improved SABRE's efficiency and achieved 18.9\% fewer SWAPs on average over
+Qiskit's default. Our approach is complementary: we use SABRE for routing
+but replace (or augment) its layout phase with spectral matching.
+
+Spectral methods for graph partitioning and VLSI placement are well
+established~\cite{hall,fiedler}. The Fiedler vector (2nd eigenvector of the
+graph Laplacian) has been used for circuit bisection. Our contribution is
+adapting dual-helix phase-modulated Laplacians---originally developed for
+SAT solving---to the qubit layout problem, and demonstrating that an
+ensemble of spectral and heuristic strategies can consistently beat
+state-of-the-art compilation.
+
+\section{Reproducibility}
+
+All code is open-source at
+\url{https://github.com/cknopp/ZynerjiQuantumCompiler}.
+Results can be reproduced with:
+
+\begin{lstlisting}
+pip install -e ".[dev]"
+python scripts/compare_qiskit.py       # Standard suite
+python scripts/bench_large_qft.py      # Large QFT
+pytest tests/ -v                       # 50 unit tests
+\end{lstlisting}
+
+Fixed random seeds (\texttt{seed=42}) ensure deterministic output.
+
+\section{Conclusion}
+
+Dual-helix spectral layout provides a consistent ${\sim}6.5\%$ SWAP reduction
+over Qiskit \texttt{opt\_level=3} across a diverse benchmark suite, with
+early evidence of scaling to 64+ qubits. The method never performs worse
+than Qiskit due to the ensemble guarantee. The approach is practical for
+circuits where compilation quality matters more than compilation speed---such
+as variational algorithms, error correction circuits, and hardware
+characterization experiments.
+
+\begin{thebibliography}{9}
+\bibitem{sabre}
+G.\ Li, Y.\ Ding, and Y.\ Xie,
+``Tackling the Qubit Mapping Problem for NISQ-Era Quantum Devices,''
+\textit{ASPLOS}, 2019.
+
+\bibitem{lightsabre}
+H.\ Zhang et al.,
+``LightSABRE: A Lightweight and Enhanced SABRE Algorithm,''
+IBM Research, 2023.
+
+\bibitem{hall}
+K.\ M.\ Hall,
+``An $r$-dimensional quadratic placement algorithm,''
+\textit{Management Science}, vol.~17, no.~3, pp.~219--229, 1970.
+
+\bibitem{fiedler}
+M.\ Fiedler,
+``Algebraic connectivity of graphs,''
+\textit{Czech.\ Math.\ J.}, vol.~23, pp.~298--305, 1973.
+\end{thebibliography}
+
+\end{document}
